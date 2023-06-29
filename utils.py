@@ -103,7 +103,7 @@ def openai_completion(
                     **batch_decoding_args.__dict__,
                     **decoding_kwargs,
                 )
-                completion_batch = openai.Completion.create(prompt=prompt_batch, **shared_kwargs)
+                completion_batch = make_completion(prompt_batch, **shared_kwargs)
                 choices = completion_batch.choices
 
                 for choice in choices:
@@ -120,7 +120,10 @@ def openai_completion(
                     time.sleep(sleep_time)  # Annoying rate limit on requests.
 
     if return_text:
-        completions = [completion.text for completion in completions]
+        try:
+            completions = [completion.text for completion in completions]
+        except AttributeError:
+            completions = [completion[0].message.content]  # chat model
     if decoding_args.n > 1:
         # make completions a nested list, where each entry is a consecutive decoding_args.n of original entries.
         completions = [completions[i : i + decoding_args.n] for i in range(0, len(completions), decoding_args.n)]
@@ -128,6 +131,23 @@ def openai_completion(
         # Return non-tuple if only 1 input and 1 generation.
         (completions,) = completions
     return completions
+
+
+def make_completion(prompt, **shared_kwargs):
+    """Calls correct openai completion endpoint depending on the model in shared_kwargs."""
+    try:
+        return openai.Completion.create(prompt=prompt, **shared_kwargs)
+    except openai.error.OpenAIError as e:
+        if "This is a chat model" in str(e):
+            # Use the chat.completions endpoint
+            print(prompt)
+            breakpoint()
+            print(prompt)
+            messages = [[{"role": "assistant", "content": p}] for p in prompt]
+            results = []
+            for message in messages:
+                results.append(openai.ChatCompletion.create(messages=message, **shared_kwargs))
+        raise
 
 
 def _make_w_io_base(f, mode: str):
